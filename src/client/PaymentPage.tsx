@@ -7,6 +7,29 @@ import { ErrorPanel, Loading, Money, Notice, ShortHash, StatusBadge } from './co
 
 const immutableStates = new Set(['FULFILLED', 'REFUNDED', 'CONFLICT']);
 
+type SavedPaymentAttempt = {
+  txHash: string;
+  idempotencyKey: string;
+  source?: 'wallet-result' | 'wallet-staged-hash';
+};
+
+function stagedTransactionHash(error: NimiqProviderError): string | null {
+  if (!error.data || typeof error.data !== 'object') return null;
+  const hash = (error.data as { hash?: unknown }).hash;
+  return typeof hash === 'string' && /^[0-9a-f]{64}$/i.test(hash) ? hash.toLowerCase() : null;
+}
+
+function savedAttemptSource(token: string): SavedPaymentAttempt['source'] | null {
+  try {
+    const saved = sessionStorage.getItem(`orderseal:payment:${token}`);
+    if (!saved) return null;
+    const parsed = JSON.parse(saved) as Partial<SavedPaymentAttempt>;
+    return parsed.source === 'wallet-staged-hash' || parsed.source === 'wallet-result' ? parsed.source : null;
+  } catch {
+    return null;
+  }
+}
+
 function operationId(): string {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   const values = new Uint8Array(16);
@@ -23,6 +46,7 @@ export function PaymentPage({ token }: { token: string }) {
   const [linkCopied, setLinkCopied] = useState(false);
   const [attemptLocked, setAttemptLocked] = useState(() => Boolean(sessionStorage.getItem(`orderseal:payment:${token}`)));
   const [attemptState, setAttemptState] = useState<string | null>(null);
+  const [recoveredStagedHash, setRecoveredStagedHash] = useState(() => savedAttemptSource(token) === 'wallet-staged-hash');
   const [hostNetwork] = useState(() => getHostNetwork());
   const inNimiqPay = hostNetwork !== undefined || Boolean(window.nimiqPay);
 
@@ -50,9 +74,13 @@ export function PaymentPage({ token }: { token: string }) {
       const saved = sessionStorage.getItem(`orderseal:payment:${token}`);
       if (attemptLocked && saved) {
         try {
-          const parsed = JSON.parse(saved) as { txHash: string; idempotencyKey: string };
+          const parsed = JSON.parse(saved) as SavedPaymentAttempt;
           if (/^[0-9a-f]{64}$/i.test(parsed.txHash)) {
-            const next = await api.submitPayment(token, { ...parsed, hostNetwork: 'mainnet' });
+            const next = await api.submitPayment(token, {
+              txHash: parsed.txHash,
+              idempotencyKey: parsed.idempotencyKey,
+              hostNetwork: 'mainnet',
+            });
             setOrder(next);
             setAttemptState(next.submittedAttempt?.state ?? 'OUTCOME_UNKNOWN');
             return;
@@ -71,7 +99,7 @@ export function PaymentPage({ token }: { token: string }) {
     const saved = sessionStorage.getItem(`orderseal:payment:${token}`);
     if (!saved) return;
     try {
-      const parsed = JSON.parse(saved) as { txHash: string; idempotencyKey: string };
+      const parsed = JSON.parse(saved) as SavedPaymentAttempt & { uncertainWithoutHash?: boolean };
       if ('uncertainWithoutHash' in parsed && parsed.uncertainWithoutHash === true) {
         setAttemptLocked(true);
         setAttemptState('WALLET_OUTCOME_UNKNOWN');
@@ -79,7 +107,12 @@ export function PaymentPage({ token }: { token: string }) {
       }
       if (/^[0-9a-f]{64}$/i.test(parsed.txHash)) {
         setAttemptLocked(true);
-        void api.submitPayment(token, { ...parsed, hostNetwork: 'mainnet' }).then((next) => {
+        setRecoveredStagedHash(parsed.source === 'wallet-staged-hash');
+        void api.submitPayment(token, {
+          txHash: parsed.txHash,
+          idempotencyKey: parsed.idempotencyKey,
+          hostNetwork: 'mainnet',
+        }).then((next) => {
           setOrder(next);
           setAttemptState(next.submittedAttempt?.state ?? 'OUTCOME_UNKNOWN');
         }).catch(() => undefined);
@@ -94,6 +127,7 @@ export function PaymentPage({ token }: { token: string }) {
     sessionStorage.removeItem(`orderseal:payment:${token}`);
     setAttemptLocked(false);
     setAttemptState(null);
+    setRecoveredStagedHash(false);
   }, [order, token]);
 
   const expired = useMemo(() => order ? Date.now() >= Date.parse(order.expiresAt) : false, [order]);
@@ -116,7 +150,7 @@ export function PaymentPage({ token }: { token: string }) {
         data: order.terms.memo,
       });
       const idempotencyKey = operationId();
-      sessionStorage.setItem(`orderseal:payment:${token}`, JSON.stringify({ txHash, idempotencyKey }));
+      sessionStorage.setItem(`orderseal:payment:${token}`, JSON.stringify({ txHash, idempotencyKey, source: 'wallet-result' }));
       setAttemptLocked(true);
       const next = await api.submitPayment(token, { txHash, idempotencyKey, hostNetwork: 'mainnet' });
       setOrder(next);
@@ -126,13 +160,41 @@ export function PaymentPage({ token }: { token: string }) {
         if (reason.type === 'PERMISSION_DENIED') {
           setError({ message: 'Payment was cancelled in Nimiq Pay. No success state was recorded.', code: reason.type });
         } else if (reason.type === 'NETWORK_ERROR' || reason.type === 'TRANSACTION_OUTCOME_UNKNOWN') {
-          sessionStorage.setItem(`orderseal:payment:${token}`, JSON.stringify({
-            uncertainWithoutHash: true,
-            recordedAt: new Date().toISOString(),
-          }));
-          setAttemptLocked(true);
-          setAttemptState('WALLET_OUTCOME_UNKNOWN');
-          setError({ message: 'The wallet could not confirm whether submission occurred. Do not retry blindly—check wallet history first.', code: 'PAYMENT_SUBMISSION_UNKNOWN' });
+          const stagedHash = stagedTransactionHash(reason);
+          if (stagedHash) {
+            const idempotencyKey = operationId();
+            sessionStorage.setItem(`orderseal:payment:${token}`, JSON.stringify({
+              txHash: stagedHash,
+              idempotencyKey,
+              source: 'wallet-staged-hash',
+            }));
+            setAttemptLocked(true);
+            setRecoveredStagedHash(true);
+            setAttemptState('OUTCOME_UNKNOWN');
+            try {
+              const next = await api.submitPayment(token, {
+                txHash: stagedHash,
+                idempotencyKey,
+                hostNetwork: 'mainnet',
+              });
+              setOrder(next);
+              setAttemptState(next.submittedAttempt?.state ?? 'OUTCOME_UNKNOWN');
+            } catch (observationError) {
+              setError({
+                message: 'Nimiq Pay supplied a staged transaction hash. It is saved locally, but OrderSeal could not contact the observer yet; do not retry.',
+                code: observationError instanceof ApiError ? observationError.code : 'STAGED_HASH_OBSERVATION_FAILED',
+              });
+            }
+          } else {
+            sessionStorage.setItem(`orderseal:payment:${token}`, JSON.stringify({
+              uncertainWithoutHash: true,
+              recordedAt: new Date().toISOString(),
+            }));
+            setAttemptLocked(true);
+            setRecoveredStagedHash(false);
+            setAttemptState('WALLET_OUTCOME_UNKNOWN');
+            setError({ message: 'The wallet could not confirm whether submission occurred. Do not retry blindly—check wallet history first.', code: 'PAYMENT_SUBMISSION_UNKNOWN' });
+          }
         } else {
           setError({ message: reason.message, code: reason.type });
         }
@@ -148,6 +210,7 @@ export function PaymentPage({ token }: { token: string }) {
     sessionStorage.removeItem(`orderseal:payment:${token}`);
     setAttemptLocked(false);
     setAttemptState(null);
+    setRecoveredStagedHash(false);
     setError(null);
   };
 
@@ -194,12 +257,14 @@ export function PaymentPage({ token }: { token: string }) {
         {error ? <ErrorPanel {...error} /> : null}
 
         {attemptLocked && (order.state === 'OFFERED' || order.state === 'EXPIRED') ? (
-          <Notice title={attemptState === 'REJECTED' ? 'Submitted transaction did not match' : attemptState === 'WALLET_OUTCOME_UNKNOWN' ? 'Wallet outcome is unknown' : 'Transaction observation is pending'} tone="warning">
+          <Notice title={attemptState === 'REJECTED' ? 'Submitted transaction did not match' : attemptState === 'WALLET_OUTCOME_UNKNOWN' ? 'Wallet outcome is unknown' : recoveredStagedHash ? 'Staged transaction is being observed' : 'Transaction observation is pending'} tone="warning">
             <p>
               {attemptState === 'REJECTED'
                 ? 'This hash was not promoted to payment authority. Check wallet history before starting another payment.'
                 : attemptState === 'WALLET_OUTCOME_UNKNOWN'
                   ? 'The wallet returned no transaction hash. OrderSeal cannot observe it automatically. Check wallet history before choosing to retry.'
+                  : recoveredStagedHash
+                    ? 'Nimiq Pay supplied the staged transaction hash after losing the final wallet response. OrderSeal saved it and is observing chain state; do not retry.'
                 : 'OrderSeal has not promoted this hash to the canonical payment yet. Do not retry blindly while the observer is uncertain.'}
             </p>
             {attemptState === 'REJECTED' || attemptState === 'WALLET_OUTCOME_UNKNOWN' ? (

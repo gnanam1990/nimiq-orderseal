@@ -94,6 +94,31 @@ afterEach(() => {
 });
 
 describe('wallet outcome uncertainty fence', () => {
+  it('persists and observes the staged hash returned with an unknown wallet outcome', async () => {
+    const stagedHash = 'c'.repeat(64);
+    wallet.send.mockRejectedValueOnce(new NimiqProviderError(
+      'TRANSACTION_OUTCOME_UNKNOWN',
+      'The wallet lost the final submission result.',
+      undefined,
+      { hash: stagedHash },
+    ));
+
+    render(<PaymentPage token={order.publicToken} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Review and pay in Nimiq Pay' }));
+
+    expect(await screen.findByText('Staged transaction is being observed')).toBeInTheDocument();
+    await waitFor(() => {
+      const post = vi.mocked(fetch).mock.calls.find(([, init]) => init?.method === 'POST');
+      expect(post).toBeDefined();
+      expect(JSON.parse(String(post?.[1]?.body))).toMatchObject({ txHash: stagedHash, hostNetwork: 'mainnet' });
+    });
+    expect(JSON.parse(sessionStorage.getItem(`orderseal:payment:${order.publicToken}`) ?? '{}'))
+      .toMatchObject({ txHash: stagedHash, source: 'wallet-staged-hash' });
+    expect(screen.getByRole('button', { name: 'Payment observation pending' })).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'I checked wallet history — allow retry' })).not.toBeInTheDocument();
+    expect(wallet.send).toHaveBeenCalledTimes(1);
+  });
+
   it('cannot call the provider again until wallet history is explicitly acknowledged', async () => {
     render(<PaymentPage token={order.publicToken} />);
     const pay = await screen.findByRole('button', { name: 'Review and pay in Nimiq Pay' });

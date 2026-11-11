@@ -6,7 +6,8 @@ The intended production topology is a Vercel client and same-origin API proxy ba
 
 1. Create a Railway service from this repository. The included `railway.toml` selects the multi-stage `Dockerfile`.
 2. Add a persistent volume mounted at `/data`.
-3. Set the following variables:
+3. Keep the Railway service at one replica. SQLite is the durable single-writer store; process-local reconciliation coalescing is not a multi-replica lease protocol.
+4. Set the following variables:
 
 ```text
 NODE_ENV=production
@@ -48,6 +49,8 @@ The Vercel function forwards only `/api/*`, caps request bodies, forwards the re
 - Submit a mismatched/unknown hash first, then an exact valid hash; confirm the valid payment can still fulfil. Attempt another hash after fulfilment and confirm the order remains fulfilled.
 - Restore a database backup in an isolated service and verify order/operation/audit counts.
 - Confirm the Railway volume survives a service restart.
+- Trigger or simulate an SDK outcome-unknown response with a staged hash and confirm the checkout observes that hash automatically; repeat without a hash and confirm the manual wallet-history fence remains locked.
+- Hold one observer call open longer than `ORDERSEAL_OBSERVER_INTERVAL_MS` and confirm no second scheduled pass or duplicate per-authority RPC call starts.
 
 ## Rollback
 

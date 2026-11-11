@@ -68,6 +68,9 @@ stateDiagram-v2
 9. Arbitrary public attempts are not placed in the background observer queue. The originating checkout may explicitly retry its saved attempt; only canonical authority is retried by the server interval.
 10. A timeout or missing observation is uncertainty, not proof of failure and not permission for the same checkout to issue a blind second payment.
 11. Fulfilment is inserted in the same transaction that makes the order fulfilled and the authority applied.
+12. The scheduled observer waits for each full pass before scheduling another. Concurrent manual and scheduled requests for the same authority are coalesced into one in-flight RPC observation.
+
+If Nimiq Pay reports `TRANSACTION_OUTCOME_UNKNOWN` with a valid staged transaction hash, the checkout persists and submits that hash to the observer. The stricter manual wallet-history acknowledgement fence is used only when the wallet supplies no valid hash.
 
 ## Confirmation policy
 

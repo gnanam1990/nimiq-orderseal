@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type Database from 'better-sqlite3';
 import { buildOrderMemo, sha256Text, signTerms, type ObservedTransaction, type SignedOrderTerms } from '../shared/domain.js';
 import type { ChainClient, ChainObservation } from './chain.js';
@@ -83,6 +83,28 @@ afterEach(() => {
 });
 
 describe('payment reconciliation', () => {
+  it('coalesces concurrent manual and background reconciliation for one authority', async () => {
+    const { db, orderId, terms } = fixture();
+    const operation = getPaymentOperation(db, orderId)!;
+    let resolveObservation!: (observation: ChainObservation) => void;
+    const observeTransaction = vi.fn(() => new Promise<ChainObservation>((resolve) => {
+      resolveObservation = resolve;
+    }));
+    const observer: ChainClient = { observeTransaction };
+
+    const first = reconcilePaymentOperation(db, observer, operation, 10, 'x'.repeat(32));
+    const second = reconcilePaymentOperation(db, observer, operation, 10, 'x'.repeat(32));
+    expect(second).toBe(first);
+    expect(observeTransaction).toHaveBeenCalledTimes(1);
+
+    resolveObservation({ transaction: transaction(terms), headBlock: 111, confirmations: 12, source: 'test-rpc' });
+    const results = await Promise.all([first, second]);
+    expect(results.map((result) => result.state)).toEqual(['FULFILLED', 'FULFILLED']);
+    expect(observeTransaction).toHaveBeenCalledTimes(1);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM observations WHERE order_id = ?').get(orderId))
+      .toEqual({ count: 1 });
+  });
+
   it('releases fulfilment exactly once after an exact final payment', async () => {
     const { db, orderId, operationId, terms } = fixture();
     const operation = getPaymentOperation(db, orderId)!;

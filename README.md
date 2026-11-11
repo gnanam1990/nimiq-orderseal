@@ -14,7 +14,8 @@ This repository contains a working product, not a simulated checkout. The wallet
 - Exact checks for hash, execution result, network ID, recipient, amount, operation reference, and sealed expiry.
 - Durable `PAYMENT_OBSERVATION_UNKNOWN` and retry fencing when chain outcome is unavailable.
 - Public hashes remain attempt evidence until an exact chain match atomically promotes one canonical payment authority; bogus first hashes cannot pin an order.
-- Wallet outcome-unknown errors disable retry until the customer explicitly confirms checking wallet history.
+- Wallet outcome-unknown errors recover and observe an SDK-provided staged hash; when no valid hash exists, retry stays disabled until the customer explicitly confirms checking wallet history.
+- The observer loop never overlaps itself, and concurrent manual/background reconciliation for one payment authority shares one in-flight RPC read.
 - One canonical payment operation and one fulfilment authority per order, enforced by database constraints and version-CAS transitions.
 - Immutable terminal states: a late callback or second hash cannot regress a fulfilled, refunded, or conflicted order.
 - Responsive merchant console, public checkout, finality evidence, conflict states, and keyboard-visible controls.

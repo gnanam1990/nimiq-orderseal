@@ -18,6 +18,8 @@ export interface ReconcileResult {
   reasons: string[];
 }
 
+const paymentReconciliationsInFlight = new Map<string, Promise<ReconcileResult>>();
+
 const ACTIVE_OPERATION_STATES = ['REQUESTED', 'RUNNING', 'OUTCOME_UNKNOWN'] as const;
 const IMMUTABLE_ORDER_STATES = new Set<OrderState>(['FULFILLED', 'REFUNDED', 'CONFLICT']);
 
@@ -159,7 +161,35 @@ function applyUnknownOutcome(
   })();
 }
 
-export async function reconcilePaymentOperation(
+export function reconcilePaymentOperation(
+  db: Database.Database,
+  chain: ChainClient,
+  suppliedOperation: OperationRow,
+  requiredConfirmations: number,
+  signingSecret: string,
+  now = new Date(),
+): Promise<ReconcileResult> {
+  const existing = paymentReconciliationsInFlight.get(suppliedOperation.id);
+  if (existing) return existing;
+
+  let task!: Promise<ReconcileResult>;
+  task = reconcilePaymentOperationOnce(
+    db,
+    chain,
+    suppliedOperation,
+    requiredConfirmations,
+    signingSecret,
+    now,
+  ).finally(() => {
+    if (paymentReconciliationsInFlight.get(suppliedOperation.id) === task) {
+      paymentReconciliationsInFlight.delete(suppliedOperation.id);
+    }
+  });
+  paymentReconciliationsInFlight.set(suppliedOperation.id, task);
+  return task;
+}
+
+async function reconcilePaymentOperationOnce(
   db: Database.Database,
   chain: ChainClient,
   suppliedOperation: OperationRow,

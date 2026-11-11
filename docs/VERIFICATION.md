@@ -7,7 +7,7 @@ Evidence recorded on 2026-11-11 in the local repository. Hosted deployment and a
 | Command | Result | What it establishes |
 | --- | --- | --- |
 | `npm run typecheck` | PASS | Client, server, shared domain, and Vercel proxy compile under strict TypeScript. |
-| `npm test` | PASS: 25; SKIP: 1 opt-in live test | Domain, reconciliation, exact-once, concurrency, wallet uncertainty, terminal immutability, attempt promotion, queue isolation, idempotency, rate limits, routing, and tamper controls. |
+| `npm test` | PASS: 28; SKIP: 1 opt-in live test | Domain, reconciliation, exact-once, observer non-overlap, concurrency, staged-hash recovery, wallet uncertainty, terminal immutability, attempt promotion, queue isolation, idempotency, rate limits, routing, and tamper controls. |
 | `npm run build` | PASS | Server TypeScript and Vite production client build. |
 | `npm audit --omit=dev` | PASS: 0 vulnerabilities | No known production dependency vulnerability in the current npm advisory snapshot. |
 
@@ -23,7 +23,7 @@ Result: PASS. The current `https://rpc.nimiqwatch.com` response for a known main
 
 The built server was started with a fresh temporary SQLite database and production static serving. The following were observed:
 
-- The final Apple Silicon Docker build succeeded with a 376.8 kB allowlisted context; the image ran as user `node`.
+- The final Apple Silicon Docker build succeeded with a 396.3 kB allowlisted context; the image ran as user `node`.
 - `GET /health` returned HTTP 200, database query success, and observer host `rpc.nimiqwatch.com`.
 - `GET /api/meta` returned NIM mainnet, Mini App SDK 0.2.5, required confirmations, and the full-URL deep-link prefix.
 - `/`, `/merchant`, and client deep routes returned the production `index.html` with security headers.
@@ -53,7 +53,9 @@ The built server was started with a fresh temporary SQLite database and producti
 - forged terms/columns cannot create a payment operation;
 - swapped protected fulfilment cannot be released;
 - mutable fulfilment-table copies cannot replace the integrity-sealed delivery, and a premature release fence is not exposed;
-- a wallet outcome-unknown error disables payment until the user explicitly confirms checking wallet history;
+- a no-hash wallet outcome-unknown error disables payment until the user explicitly confirms checking wallet history;
+- a wallet outcome-unknown error carrying a valid staged hash is persisted and sent to the observer automatically, while a no-hash outcome retains the manual-history fence;
+- a slow scheduled observer pass cannot overlap the next interval, and concurrent reconciliation calls for one authority share one RPC observation;
 - same-hash retries durably bind additional idempotency keys, and a changed payload is rejected;
 - spoofed forwarded IP headers cannot bypass the per-checkout payment limit, whose 16th request returns HTTP 429;
 - saved pre-expiry attempts remain visible and fenced after the displayed order expiry;
