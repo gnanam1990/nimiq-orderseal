@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveUpstreamUrl } from './proxy.js';
+import { resolveUpstreamUrl } from '../api/proxy.js';
 
 const origin = new URL('https://backend.example/');
 
