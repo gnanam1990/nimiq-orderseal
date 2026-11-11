@@ -1,12 +1,25 @@
 # Deployment runbook
 
-The intended production topology is a Vercel client and same-origin API proxy backed by one persistent Railway Fastify service. Do not run the SQLite observer inside a Vercel function.
+Do not run the SQLite observer inside a Vercel function. The current hackathon deployment and the intended production migration deliberately keep the stateful observer separate from Vercel.
 
-## 1. Railway backend
+## Current hackathon deployment
 
-1. Create a Railway service from this repository. The included `railway.toml` selects the multi-stage `Dockerfile`.
+- Public client and same-origin proxy: `https://nimiq-orderseal.vercel.app`.
+- Persistent observer: one Fastify process on the project owner's Mac, exposed through a Cloudflare Quick Tunnel.
+- Durable store: SQLite under the owner's macOS Application Support directory, not an ephemeral Vercel filesystem.
+- Runtime secrets: macOS Keychain; they are not stored in the repository or Vercel client bundle.
+
+This topology runs the real observer and durable database, but depends on the Mac, process, internet connection, and temporary tunnel remaining available. It has no production SLA. If the tunnel URL changes, update Vercel's server-only `ORDERSEAL_API_ORIGIN` and redeploy. A production migration must preserve the SQLite database and its WAL state rather than starting with a blank store.
+
+## Intended production topology
+
+The intended production topology is a Vercel client and same-origin API proxy backed by one persistent container with a mounted volume. Railway is one compatible target; an equivalent host is acceptable if it provides durable storage and one long-running instance.
+
+## 1. Persistent backend
+
+1. Create a persistent container service from this repository. On Railway, the included `railway.toml` selects the multi-stage `Dockerfile`.
 2. Add a persistent volume mounted at `/data`.
-3. Keep the Railway service at one replica. SQLite is the durable single-writer store; process-local reconciliation coalescing is not a multi-replica lease protocol.
+3. Keep the backend service at one replica. SQLite is the durable single-writer store; process-local reconciliation coalescing is not a multi-replica lease protocol.
 4. Set the following variables:
 
 ```text
@@ -20,15 +33,15 @@ ORDERSEAL_PUBLIC_ORIGIN=https://<final-vercel-domain>
 ORDERSEAL_OBSERVER_INTERVAL_MS=7000
 ```
 
-Railway supplies `PORT`; do not hard-code it. Deploy, create a public HTTPS domain, and verify `GET /health` returns `status: ok`. At this point the backend can also serve the built client, but the public competition URL should use the Vercel topology below.
+The host supplies `PORT`; do not hard-code it. Deploy, create a public HTTPS domain, and verify `GET /health` returns `status: ok`. At this point the backend can also serve the built client, but the public competition URL should use the Vercel topology below.
 
 ## 2. Vercel client and proxy
 
 1. Import the same repository in Vercel.
 2. Keep the included build configuration: `npm run build:client`, output `dist/client`.
-3. Set `ORDERSEAL_API_ORIGIN` to the Railway HTTPS origin, with no path, credentials, or query string.
+3. Set `ORDERSEAL_API_ORIGIN` to the persistent backend HTTPS origin, with no path, credentials, or query string.
 4. Deploy and verify `/`, `/merchant`, and `/api/meta`.
-5. Update Railway `ORDERSEAL_PUBLIC_ORIGIN` to the final Vercel origin and redeploy Railway. New checkout URLs will now use the public client domain.
+5. Update backend `ORDERSEAL_PUBLIC_ORIGIN` to the final Vercel origin and redeploy the backend. New checkout URLs will now use the public client domain.
 
 The Vercel function forwards only `/api/*`, caps request bodies, forwards the required content/auth headers, disables response caching, and times out without recording a success state.
 
@@ -48,7 +61,7 @@ The Vercel function forwards only `/api/*`, caps request bodies, forwards the re
 - Submit the same hash with a new idempotency key and confirm no second operation exists.
 - Submit a mismatched/unknown hash first, then an exact valid hash; confirm the valid payment can still fulfil. Attempt another hash after fulfilment and confirm the order remains fulfilled.
 - Restore a database backup in an isolated service and verify order/operation/audit counts.
-- Confirm the Railway volume survives a service restart.
+- Confirm the mounted volume survives a service restart.
 - Trigger or simulate an SDK outcome-unknown response with a staged hash and confirm the checkout observes that hash automatically; repeat without a hash and confirm the manual wallet-history fence remains locked.
 - Hold one observer call open longer than `ORDERSEAL_OBSERVER_INTERVAL_MS` and confirm no second scheduled pass or duplicate per-authority RPC call starts.
 

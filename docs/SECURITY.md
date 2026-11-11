@@ -29,8 +29,8 @@
 ## Operational requirements
 
 - Generate independent high-entropy operator and signing secrets. Never reuse wallet credentials.
-- Store secrets in Railway environment variables, not Vercel client variables or source control.
-- Mount and back up a Railway volume at `/data`; test restore procedures.
+- Store secrets in the persistent backend's secret store, not Vercel client variables or source control. The current hackathon deployment uses macOS Keychain.
+- Mount and back up a persistent volume at `/data` for production; test restore procedures. The temporary Mac-hosted deployment uses durable Application Support storage but has no uptime SLA.
 - Restrict operator-token distribution and rotate it after suspected exposure.
 - Replace or augment the public demonstration RPC for production availability and provider diversity.
 - Review access logs and `order_integrity_failure`, `payment_submission_rejected`, and `payment_conflict` audit events.
@@ -42,7 +42,7 @@
 - The checkout URL is a bearer secret and may exist in browser history or user-shared messages. The application suppresses outbound referrers but cannot control a user's sharing destination.
 - A merchant can bypass OrderSeal by delivering outside the product. The enforcement claim is limited to the built-in release path.
 - The refund endpoint intentionally returns `501 REFUND_EXECUTION_UNSUPPORTED`; there is no server wallet.
-- SQLite with one Railway instance is appropriate for this release. Horizontal writers require a transactional external database and equivalent constraints.
+- SQLite with one persistent backend instance is appropriate for this release. Horizontal writers require a transactional external database and equivalent constraints.
 - No independent security audit has been completed.
 
 ## Reporting

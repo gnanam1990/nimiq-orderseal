@@ -17,4 +17,4 @@ OrderSeal is a Nimiq Pay Mini App that prevents a merchant from treating a walle
 
 ## Claims gate
 
-Do not claim hosted, Nimiq-Pay-tested, mainnet-paid, or submitted until each has direct evidence. A locally passing live RPC read is not a wallet payment. A Vercel client without the Railway volume-backed observer is not a working deployment.
+Do not claim hosted, Nimiq-Pay-tested, mainnet-paid, or submitted until each has direct evidence. A locally passing live RPC read is not a wallet payment. A Vercel client without a reachable persistent observer and durable database is not a working deployment.

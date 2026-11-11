@@ -1,13 +1,13 @@
 # Verification evidence
 
-Evidence recorded on 2026-11-11 in the local repository. Hosted deployment and a user-signed Nimiq Pay transaction remain separate, unrun evidence classes.
+Evidence recorded on 2026-11-11. Hosted deployment is verified below; a user-signed Nimiq Pay transaction remains a separate, unrun evidence class.
 
 ## Automated checks
 
 | Command | Result | What it establishes |
 | --- | --- | --- |
 | `npm run typecheck` | PASS | Client, server, shared domain, and Vercel proxy compile under strict TypeScript. |
-| `npm test` | PASS: 28; SKIP: 1 opt-in live test | Domain, reconciliation, exact-once, observer non-overlap, concurrency, staged-hash recovery, wallet uncertainty, terminal immutability, attempt promotion, queue isolation, idempotency, rate limits, routing, and tamper controls. |
+| `npm test` | PASS: 35; SKIP: 1 opt-in live test | Domain, reconciliation, exact-once, observer non-overlap, concurrency, staged-hash recovery, wallet uncertainty, terminal immutability, attempt promotion, queue isolation, idempotency, rate limits, Vercel wildcard proxy routing, and tamper controls. |
 | `npm run build` | PASS | Server TypeScript and Vite production client build. |
 | `npm audit --omit=dev` | PASS: 0 vulnerabilities | No known production dependency vulnerability in the current npm advisory snapshot. |
 
@@ -61,13 +61,26 @@ The built server was started with a fresh temporary SQLite database and producti
 - saved pre-expiry attempts remain visible and fenced after the displayed order expiry;
 - unknown `/api/*` routes return JSON 404 instead of the SPA shell.
 
+## Hosted deployment check
+
+The exact Git commit `6d8985e80d1bf7bb4ef319e66cdc276e1df919a5` was deployed to `https://nimiq-orderseal.vercel.app` as Vercel deployment `dpl_F6St54GB4FsfzHJyhB7EMHP4aFFc`.
+
+- Vercel reported the deployment `Ready` and listed only one function: `api/proxy`.
+- `/` returned the production client with the configured security headers.
+- `/api/meta` returned HTTP 200 with NIM mainnet, SDK 0.2.5, and 10 required confirmations.
+- `/api/admin/orders` without a token returned backend JSON `401 ADMIN_AUTH_REQUIRED`, proving a nested API route reached the observer.
+- `/api/public/orders/not-a-valid-token` returned backend JSON `404 ORDER_NOT_FOUND`, not a Vercel platform 404.
+- The observer `/health` returned HTTP 200, a successful database query, and `rpc.nimiqwatch.com`.
+- A 375 by 812 browser pass showed no horizontal overflow. Additional Nimiq Pay webview widths remain unverified.
+
+The observer currently runs on the project owner's Mac through a Cloudflare Quick Tunnel with durable local SQLite. This is live and functional while the machine and tunnel remain online, but it is temporary and has no production uptime guarantee.
+
 ## Not yet run
 
-- Railway deployment with a mounted persistent volume.
-- Vercel deployment and deployed proxy check.
+- Migration to a production host with a mounted persistent volume, followed by backup/restore verification.
 - Nimiq Pay host initialization on the deployed URL.
 - User-approved mainnet NIM payment through the deployed Mini App.
-- Browser visual checks at 375, 768, 1024, and 1440 pixels in a real Nimiq Pay webview.
+- Browser visual checks at 768, 1024, and 1440 pixels and all checks in a real Nimiq Pay webview.
 - Independent security audit and database restore drill.
 
 These items must not be described as passed until evidence is captured.

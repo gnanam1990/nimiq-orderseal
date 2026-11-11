@@ -19,7 +19,7 @@ This repository contains a working product, not a simulated checkout. The wallet
 - One canonical payment operation and one fulfilment authority per order, enforced by database constraints and version-CAS transitions.
 - Immutable terminal states: a late callback or second hash cannot regress a fulfilled, refunded, or conflicted order.
 - Responsive merchant console, public checkout, finality evidence, conflict states, and keyboard-visible controls.
-- Split hosting: Vercel serves the client and same-origin API proxy; Railway runs the persistent Fastify observer with a mounted SQLite volume.
+- Split hosting: Vercel serves the client and same-origin API proxy; the persistent Fastify observer runs separately with durable SQLite storage.
 
 ## Honest boundary
 
@@ -33,9 +33,9 @@ The automated suite proves domain behavior, persistence controls, API behavior, 
 flowchart LR
   C[Customer in Nimiq Pay] -->|native wallet approval| N[Nimiq mainnet]
   C -->|checkout and tx hash| V[Vercel client + same-origin API proxy]
-  V --> R[Railway Fastify observer]
+  V --> R[Persistent Fastify observer]
   R -->|read only JSON-RPC| N
-  R --> D[(SQLite on Railway volume)]
+  R --> D[(Durable SQLite volume)]
   D -->|only after exact match + finality| F[Protected fulfilment release]
 ```
 
@@ -69,9 +69,9 @@ RUN_LIVE_RPC=1 npx vitest run src/server/live-rpc.test.ts
 
 The live test is read-only and opt-in so the default suite remains deterministic. Current checked evidence is recorded in [docs/VERIFICATION.md](docs/VERIFICATION.md).
 
-## Production hosting
+## Hosting
 
-The Railway process must have persistent storage mounted at `/data`; never point SQLite at an ephemeral deployment filesystem. The Vercel `/api` function forwards to Railway using `ORDERSEAL_API_ORIGIN`. Deployment is documented step by step in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+The public hackathon URL currently uses Vercel for the client and same-origin API proxy, backed by a single Mac-hosted Fastify observer exposed through a Cloudflare Quick Tunnel. SQLite is stored durably on that Mac. This is a real working deployment while the machine and tunnel remain online, but it is temporary and has no production uptime guarantee. The intended production topology replaces the temporary origin with a single persistent container and mounted `/data` volume. Deployment and migration steps are documented in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Primary routes
 

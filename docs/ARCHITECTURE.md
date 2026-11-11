@@ -11,7 +11,7 @@ The unavoidable control point is the fulfilment release stored by the backend. A
 1. **React Mini App client** — merchant console and public checkout. It calls the Nimiq Mini App SDK only when a mainnet host provider is present.
 2. **Vercel API proxy** — forwards same-origin `/api/*` requests to the persistent backend. It stores no order state.
 3. **Fastify observer** — authenticates merchant operations, seals terms, records deduplicated public attempts, promotes only an exact chain match to payment authority, and applies state transitions.
-4. **SQLite evidence store** — runs in WAL mode on a Railway volume. It stores immutable terms, canonical operations, observations, audit events, and fulfilment records.
+4. **SQLite evidence store** — runs in WAL mode on durable single-writer storage. The current hackathon deployment uses macOS Application Support; production should use a mounted container volume. It stores immutable terms, canonical operations, observations, audit events, and fulfilment records.
 5. **Nimiq JSON-RPC** — authoritative read source for transaction and head-block evidence. The client-reported hash is only a lookup key.
 
 ## Server-authenticated order seal
