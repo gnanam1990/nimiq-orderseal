@@ -4,6 +4,7 @@
   "buildCommand": "npm run build:client",
   "outputDirectory": "dist/client",
   "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/proxy?__orderseal_path=:path*" },
     { "source": "/pay/:path*", "destination": "/index.html" },
     { "source": "/merchant/:path*", "destination": "/index.html" }
   ],
@@ -20,6 +21,6 @@
     }
   ],
   "functions": {
-    "api/[...path].ts": { "maxDuration": 15 }
+    "api/proxy.ts": { "maxDuration": 15 }
   }
 }

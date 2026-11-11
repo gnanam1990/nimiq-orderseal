@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 const MAX_BODY_BYTES = 64 * 1024;
+const PROXY_PATH_PARAM = '__orderseal_path';
 
 function sendJson(response: ServerResponse, status: number, body: unknown): void {
   response.statusCode = status;
@@ -22,6 +23,24 @@ async function readBody(request: IncomingMessage): Promise<Buffer | undefined> {
   return Buffer.concat(chunks);
 }
 
+export function resolveUpstreamUrl(requestUrl: string | undefined, origin: URL): URL | null {
+  const incomingUrl = new URL(requestUrl ?? '/api/proxy', 'https://orderseal.invalid');
+  const rewrittenPath = incomingUrl.searchParams.get(PROXY_PATH_PARAM);
+  const segments = rewrittenPath?.split('/') ?? [];
+  if (
+    !rewrittenPath
+    || !/^[A-Za-z0-9_-]+(?:\/[A-Za-z0-9._~-]+)*$/.test(rewrittenPath)
+    || segments.some((segment) => segment === '.' || segment === '..')
+  ) {
+    return null;
+  }
+
+  incomingUrl.searchParams.delete(PROXY_PATH_PARAM);
+  const upstreamUrl = new URL(`/api/${rewrittenPath}`, origin);
+  for (const [name, value] of incomingUrl.searchParams) upstreamUrl.searchParams.append(name, value);
+  return upstreamUrl;
+}
+
 export default async function handler(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const configuredOrigin = process.env.ORDERSEAL_API_ORIGIN;
   if (!configuredOrigin) {
@@ -38,12 +57,11 @@ export default async function handler(request: IncomingMessage, response: Server
     return;
   }
 
-  const incomingUrl = new URL(request.url ?? '/api', 'https://orderseal.invalid');
-  if (!incomingUrl.pathname.startsWith('/api/')) {
+  const upstreamUrl = resolveUpstreamUrl(request.url, origin);
+  if (!upstreamUrl) {
     sendJson(response, 404, { error: { code: 'NOT_FOUND', message: 'Unknown API route.' } });
     return;
   }
-  const upstreamUrl = new URL(`${incomingUrl.pathname}${incomingUrl.search}`, origin);
   const headers = new Headers();
   for (const name of ['accept', 'authorization', 'content-type'] as const) {
     const value = request.headers[name];
